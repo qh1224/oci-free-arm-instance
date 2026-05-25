@@ -44,12 +44,12 @@ jobs:
           region=$OCI_REGION
           EOF
           
-          # 3. 准备公钥文件（解决最新版 OCI CLI 参数报错问题）
+          # 3. 准备公钥
           echo "$SSH_KEY" > ~/.oci/ssh_authorized_keys.pub
           
-          # 4. 发起冲锋并捕获结果
+          # 4. 发起冲锋（设置 30 秒超时强退，防止死卡排队，直接去抓结果）
           export SUPPRESS_LABEL_WARNING=True
-          /home/runner/bin/oci compute instance launch \
+          timeout 30s /home/runner/bin/oci compute instance launch \
             --availability-domain "$AD_NAME" \
             --compartment-id "$COMPARTMENT_ID" \
             --shape "VM.Standard.A1.Flex" \
@@ -61,7 +61,19 @@ jobs:
             --display-name "chunchuan-arm-vm" \
             --boot-volume-size-in-gbs 100 > oci_success.log 2> oci_error.log || true
 
-          # 5. 强行推送 Discord 战报
+          # 5. 强制输出到 GitHub 日志，让你一眼看清死因
+          echo "=========================================="
+          echo "▶▶▶ 甲骨文当前真实对线情况如下 ◀◀◀"
+          echo "=========================================="
+          if [ -s oci_success.log ]; then
+            cat oci_success.log
+          elif [ -s oci_error.log ]; then
+            cat oci_error.log
+          else
+            echo "⚠️ 刚才排队卡死超时了，或者是 Discord Webhook 格式内鬼，请看下方推送状态。"
+          fi
+
+          # 6. 强行推送 Discord 战报
           if [ -s oci_success.log ]; then
             MSG="🚀 【韩国春川】ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
             DATA=$(cat oci_success.log | jq -R -s '.')
@@ -73,4 +85,4 @@ jobs:
           curl -H "Content-Type: application/json" \
                -X POST \
                -d "{\"content\": \"$MSG\n\`\`\`json\n$DATA\n\`\`\`\"}" \
-               $DISCORD_WEBHOOK
+               "$DISCORD_WEBHOOK"
