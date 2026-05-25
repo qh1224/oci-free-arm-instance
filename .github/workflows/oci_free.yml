@@ -75,6 +75,13 @@ jobs:
             --display-name "chunchuan-arm-vm" \
             --boot-volume-size-in-gbs 100 --debug > oci_success.log 2> oci_error.log || true
 
-          # 5. 智能过滤可视化输出
+          # 5. 暴力打印最后 300 行底层抓包日志，让内鬼彻底现形
           echo "=========================================="
-          echo "▶▶▶ 甲骨文当前真实对线情况如下 ◀◀◀"
+          echo "▶▶▶ 甲骨文 Debug 现场无修剪原始日志 ◀◀◀"
+          echo "=========================================="
+          if [ -s oci_success.log ]; then
+            cat oci_success.log
+          else
+            echo "--- 错误日志后 300 行截取 ---"
+            tail -n 300 oci_error.log
+          fi
