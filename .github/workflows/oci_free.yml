@@ -54,7 +54,7 @@ jobs:
           # 3. 准备公钥
           echo "$SSH_KEY" | xargs > ~/.oci/ssh_authorized_keys.pub
           
-          # 4. 发起冲锋
+          # 4. 开启 Debug 发起冲锋
           CLEAN_AD=$(echo "$AD_NAME" | tr -d '= ' | xargs)
           CLEAN_COMP=$(echo "$COMPARTMENT_ID" | tr -d '= ' | xargs)
           CLEAN_IMAGE=$(echo "$IMAGE_ID" | tr -d '= ' | xargs)
@@ -73,14 +73,8 @@ jobs:
             --ssh-authorized-keys-file ~/.oci/ssh_authorized_keys.pub \
             --assign-public-ip true \
             --display-name "chunchuan-arm-vm" \
-            --boot-volume-size-in-gbs 100 > oci_success.log 2> oci_error.log || true
+            --boot-volume-size-in-gbs 100 --debug > oci_success.log 2> oci_error.log || true
 
-          # 5. 纯文本可视化输出，拒绝任何由于符号变形引发的自杀行为
+          # 5. 智能过滤可视化输出
           echo "=========================================="
           echo "▶▶▶ 甲骨文当前真实对线情况如下 ◀◀◀"
-          echo "=========================================="
-          if [ -s oci_success.log ]; then
-            cat oci_success.log
-          else
-            cat oci_error.log
-          fi
