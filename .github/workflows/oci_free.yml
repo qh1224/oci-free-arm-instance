@@ -24,6 +24,7 @@ jobs:
           IMAGE_ID: ${{ secrets.IMAGE_ID }}
           SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           SSH_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           # 1. 安装 OCI CLI
           bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oracle-cli/master/scripts/install/install.sh)" -- --accept-all-defaults || bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
@@ -34,11 +35,10 @@ jobs:
           echo "$OCI_KEY" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/oci_api_key.pem
           
-          # 彻底清洗可能带入的等号或多余空格
-          CLEAN_USER=$(echo "$OCI_USER" | xargs)
-          CLEAN_FINGERPRINT=$(echo "$OCI_FINGERPRINT" | xargs)
-          CLEAN_TENANCY=$(echo "$OCI_TENANCY" | xargs)
-          CLEAN_REGION=$(echo "$OCI_REGION" | tr -d '= ' | xargs)
+          CLEAN_USER=$(echo -n "$OCI_USER" | tr -d '[:space:]=')
+          CLEAN_FINGERPRINT=$(echo -n "$OCI_FINGERPRINT" | tr -d '[:space:]=')
+          CLEAN_TENANCY=$(echo -n "$OCI_TENANCY" | tr -d '[:space:]=')
+          CLEAN_REGION=$(echo -n "$OCI_REGION" | tr -d '[:space:]=')
           
           cat << EOF > ~/.oci/config
           [DEFAULT]
@@ -51,19 +51,19 @@ jobs:
           
           chmod 600 ~/.oci/config
           
-          # 3. 极致脱水清洗公钥，强行捏成单行
+          # 3. 极致脱水清洗公钥
           printf "%s" "$SSH_KEY" | xargs > ~/.oci/ssh_authorized_keys.pub
           
-          # 4. 变量严格对齐清洗
-          V_AD=$(echo "$AD_NAME" | tr -d '= ' | xargs)
-          V_COMP=$(echo "$COMPARTMENT_ID" | tr -d '= ' | xargs)
-          V_IMAGE=$(echo "$IMAGE_ID" | tr -d '= ' | xargs)
-          V_SUBNET=$(echo "$SUBNET_ID" | tr -d '= ' | xargs)
+          # 4. 究极过滤：剥离一切回车、换行、空格和等号
+          V_AD=$(echo -n "$AD_NAME" | tr -d '[:space:]=')
+          V_COMP=$(echo -n "$COMPARTMENT_ID" | tr -d '[:space:]=')
+          V_IMAGE=$(echo -n "$IMAGE_ID" | tr -d '[:space:]=')
+          V_SUBNET=$(echo -n "$SUBNET_ID" | tr -d '[:space:]=')
           
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
           export SUPPRESS_LABEL_WARNING=True
           
-          # 终极修复：使用防弹级引号拼接注入，彻底避开甲骨文重复字段的解析 BUG
+          # 发起冲锋！
           /home/runner/bin/oci compute instance launch \
             --availability-domain "$V_AD" \
             --compartment-id "$V_COMP" \
@@ -74,15 +74,18 @@ jobs:
             --assign-public-ip true \
             --display-name "chunchuan-arm-vm" \
             --source-details '{"sourceType": "image", "imageId": "'"$V_IMAGE"'", "bootVolumeSizeInGBs": 100}' \
-            --debug > oci_success.log 2> oci_error.log || true
+            > oci_success.log 2> oci_error.log || true
 
-          # 5. 暴力打印最后 300 行底层抓包日志
-          echo "=========================================="
-          echo "▶▶▶ 甲骨文 Debug 现场无修剪原始日志 ◀◀◀"
-          echo "=========================================="
+          # 5. 推送 Discord 战报
           if [ -s oci_success.log ]; then
-            cat oci_success.log
+            MSG="🚀 【韩国春川】ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
+            DATA_JSON=$(cat oci_success.log | jq @json)
           else
-            echo "--- 错误日志后 300 行截取 ---"
-            tail -n 300 oci_error.log
+            MSG="❌ 【韩国春川】排队冲锋中..."
+            DATA_JSON=$(cat oci_error.log | jq @json)
           fi
+          
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"$MSG\n\`\`\`json\n\${DATA_JSON:1:-1}\n\`\`\`\"}" \
+               "$DISCORD_WEBHOOK"
