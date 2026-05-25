@@ -24,10 +24,9 @@ jobs:
           IMAGE_ID: ${{ secrets.IMAGE_ID }}
           SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           SSH_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           # 1. 安装 OCI CLI
-          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
+          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oracle-cli/master/scripts/install/install.sh)" -- --accept-all-defaults || bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
           export PATH=$PATH:/home/runner/bin
           
           # 2. 写入认证配置
@@ -50,13 +49,12 @@ jobs:
           region=$CLEAN_REGION
           EOF
           
-          # 修复文件权限警告
           chmod 600 ~/.oci/config
           
           # 3. 准备公钥
           echo "$SSH_KEY" | xargs > ~/.oci/ssh_authorized_keys.pub
           
-          # 4. 发起冲锋（使用清洗后的变量防止命令断行）
+          # 4. 发起冲锋
           CLEAN_AD=$(echo "$AD_NAME" | tr -d '= ' | xargs)
           CLEAN_COMP=$(echo "$COMPARTMENT_ID" | tr -d '= ' | xargs)
           CLEAN_IMAGE=$(echo "$IMAGE_ID" | tr -d '= ' | xargs)
@@ -77,22 +75,12 @@ jobs:
             --display-name "chunchuan-arm-vm" \
             --boot-volume-size-in-gbs 100 > oci_success.log 2> oci_error.log || true
 
-          # 5. 可视化打印
+          # 5. 纯文本可视化输出，拒绝任何由于符号变形引发的自杀行为
           echo "=========================================="
           echo "▶▶▶ 甲骨文当前真实对线情况如下 ◀◀◀"
           echo "=========================================="
           if [ -s oci_success.log ]; then
             cat oci_success.log
-            MSG="🚀 【韩国春川】ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
-            DATA_JSON=$(cat oci_success.log | jq @json)
           else
             cat oci_error.log
-            MSG="❌ 【韩国春川】尝试冲锋返回。"
-            DATA_JSON=$(cat oci_error.log | jq @json)
           fi
-          
-          # 6. 安全安全的 JSON 推送，绝对不翻车
-          curl -H "Content-Type: application/json" \
-               -X POST \
-               -d "{\"content\": \"$MSG\n\`\`\`json\n\${DATA_JSON:1:-1}\n\`\`\`\"}" \
-               "$DISCORD_WEBHOOK"
