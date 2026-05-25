@@ -1,0 +1,68 @@
+name: Try to Create OCI VM
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-oci-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure OCI CLI
+        env:
+          OCI_USER: ${{ secrets.OCI_CLI_USER }}
+          OCI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+          OCI_REGION: ${{ secrets.OCI_CLI_REGION }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+          OCI_KEY: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+        run: |
+          mkdir -p ~/.oci
+          echo "$OCI_KEY" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          cat << EOF > ~/.oci/config
+          [DEFAULT]
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          key_file=~/.oci/oci_api_key.pem
+          tenancy=$OCI_TENANCY
+          region=$OCI_REGION
+          EOF
+
+      - name: Try to Create Instance
+        continue-on-error: true
+        run: |
+          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
+          export PATH=$PATH:/home/runner/bin
+          
+          oci compute instance launch \
+            --availability-domain "${{ secrets.AD_NAME }}" \
+            --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" \
+            --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus":2,"memoryInGBs":12}' \
+            --image-id "${{ secrets.IMAGE_ID }}" \
+            --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
+            --ssh-authorized-keys "${{ secrets.SSH_PUBLIC_KEY }}" \
+            --assign-public-ip true \
+            --display-name "chunchuan-arm-vm" \
+            --boot-volume-size-in-gbs 100 > oci_success.log 2> oci_error.log
+
+      - name: Send Notification to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -f oci_success.log ] && [ -s oci_success.log ]; then
+            MSG="🚀 【韩国春川】ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
+            DATA=$(cat oci_success.log | jq -R -s '.')
+          else
+            MSG="❌ 【韩国春川】尝试抢机失败。日志排查："
+            DATA=$(cat oci_error.log | jq -R -s '.')
+          fi
+          
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"$MSG\n\`\`\`json\n$DATA\n\`\`\`\"}" \
+               $DISCORD_WEBHOOK
