@@ -24,12 +24,13 @@ jobs:
           IMAGE_ID: ${{ secrets.IMAGE_ID }}
           SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           SSH_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           # 1. 安装 OCI CLI
           bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
           export PATH=$PATH:/home/runner/bin
           
-          # 2. 写入配置文件
+          # 2. 写入认证配置
           mkdir -p ~/.oci
           echo "$OCI_KEY" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/oci_api_key.pem
@@ -43,11 +44,11 @@ jobs:
           region=$OCI_REGION
           EOF
           
-          # 3. 发起请求并强行把结果直接打印出来
-          echo "=========================================="
-          echo "▶▶▶ 甲骨文真实返回结果如下 ◀◀◀"
-          echo "=========================================="
+          # 3. 准备公钥文件（解决最新版 OCI CLI 参数报错问题）
+          echo "$SSH_KEY" > ~/.oci/ssh_authorized_keys.pub
           
+          # 4. 发起冲锋并捕获结果
+          export SUPPRESS_LABEL_WARNING=True
           /home/runner/bin/oci compute instance launch \
             --availability-domain "$AD_NAME" \
             --compartment-id "$COMPARTMENT_ID" \
@@ -55,7 +56,21 @@ jobs:
             --shape-config '{"ocpus":2,"memoryInGBs":12}' \
             --image-id "$IMAGE_ID" \
             --subnet-id "$SUBNET_ID" \
-            --ssh-authorized-keys "$SSH_KEY" \
+            --ssh-authorized-keys-file ~/.oci/ssh_authorized_keys.pub \
             --assign-public-ip true \
             --display-name "chunchuan-arm-vm" \
-            --boot-volume-size-in-gbs 100
+            --boot-volume-size-in-gbs 100 > oci_success.log 2> oci_error.log || true
+
+          # 5. 强行推送 Discord 战报
+          if [ -s oci_success.log ]; then
+            MSG="🚀 【韩国春川】ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
+            DATA=$(cat oci_success.log | jq -R -s '.')
+          else
+            MSG="❌ 【韩国春川】尝试冲锋返回。日志详情："
+            DATA=$(cat oci_error.log | jq -R -s '.')
+          fi
+          
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"$MSG\n\`\`\`json\n$DATA\n\`\`\`\"}" \
+               $DISCORD_WEBHOOK
