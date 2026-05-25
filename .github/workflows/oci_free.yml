@@ -54,7 +54,7 @@ jobs:
           # 3. 准备公钥
           echo "$SSH_KEY" | xargs > ~/.oci/ssh_authorized_keys.pub
           
-          # 4. 开启 Debug 发起冲锋
+          # 4. 彻底精简优化命令（移除外部 image-id，只保留 source 内部镜像）
           CLEAN_AD=$(echo "$AD_NAME" | tr -d '= ' | xargs)
           CLEAN_COMP=$(echo "$COMPARTMENT_ID" | tr -d '= ' | xargs)
           CLEAN_IMAGE=$(echo "$IMAGE_ID" | tr -d '= ' | xargs)
@@ -63,17 +63,19 @@ jobs:
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
           export SUPPRESS_LABEL_WARNING=True
           
+          # 彻底清洗公钥内容中的换行符和首尾多余空格，强行捏成完美的一行
+          printf "%s" "$SSH_KEY" | xargs > ~/.oci/ssh_authorized_keys.pub
+
           /home/runner/bin/oci compute instance launch \
             --availability-domain "$CLEAN_AD" \
             --compartment-id "$CLEAN_COMP" \
             --shape "VM.Standard.A1.Flex" \
             --shape-config '{"ocpus":2,"memoryInGBs":12}' \
-            --image-id "$CLEAN_IMAGE" \
+            --source-details "{\"sourceType\": \"image\", \"imageId\": \"$CLEAN_IMAGE\", \"bootVolumeSizeInGBs\": 100}" \
             --subnet-id "$CLEAN_SUBNET" \
             --ssh-authorized-keys-file ~/.oci/ssh_authorized_keys.pub \
             --assign-public-ip true \
-            --display-name "chunchuan-arm-vm" \
-            --boot-volume-size-in-gbs 100 --debug > oci_success.log 2> oci_error.log || true
+            --display-name "chunchuan-arm-vm" > oci_success.log 2> oci_error.log || true
 
           # 5. 暴力打印最后 300 行底层抓包日志，让内鬼彻底现形
           echo "=========================================="
