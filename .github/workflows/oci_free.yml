@@ -35,54 +35,64 @@ jobs:
           echo "$OCI_KEY" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/oci_api_key.pem
           
+          # 彻底清洗可能带入的等号或多余空格
+          CLEAN_USER=$(echo "$OCI_USER" | xargs)
+          CLEAN_FINGERPRINT=$(echo "$OCI_FINGERPRINT" | xargs)
+          CLEAN_TENANCY=$(echo "$OCI_TENANCY" | xargs)
+          CLEAN_REGION=$(echo "$OCI_REGION" | tr -d '= ' | xargs)
+          
           cat << EOF > ~/.oci/config
           [DEFAULT]
-          user=$OCI_USER
-          fingerprint=$OCI_FINGERPRINT
+          user=$CLEAN_USER
+          fingerprint=$CLEAN_FINGERPRINT
           key_file=~/.oci/oci_api_key.pem
-          tenancy=$OCI_TENANCY
-          region=$OCI_REGION
+          tenancy=$CLEAN_TENANCY
+          region=$CLEAN_REGION
           EOF
           
-          # 3. 准备公钥
-          echo "$SSH_KEY" > ~/.oci/ssh_authorized_keys.pub
+          # 修复文件权限警告
+          chmod 600 ~/.oci/config
           
-          # 4. 发起冲锋（设置 30 秒超时强退，防止死卡排队，直接去抓结果）
+          # 3. 准备公钥
+          echo "$SSH_KEY" | xargs > ~/.oci/ssh_authorized_keys.pub
+          
+          # 4. 发起冲锋（使用清洗后的变量防止命令断行）
+          CLEAN_AD=$(echo "$AD_NAME" | tr -d '= ' | xargs)
+          CLEAN_COMP=$(echo "$COMPARTMENT_ID" | tr -d '= ' | xargs)
+          CLEAN_IMAGE=$(echo "$IMAGE_ID" | tr -d '= ' | xargs)
+          CLEAN_SUBNET=$(echo "$SUBNET_ID" | tr -d '= ' | xargs)
+          
+          export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
           export SUPPRESS_LABEL_WARNING=True
-          timeout 30s /home/runner/bin/oci compute instance launch \
-            --availability-domain "$AD_NAME" \
-            --compartment-id "$COMPARTMENT_ID" \
+          
+          /home/runner/bin/oci compute instance launch \
+            --availability-domain "$CLEAN_AD" \
+            --compartment-id "$CLEAN_COMP" \
             --shape "VM.Standard.A1.Flex" \
             --shape-config '{"ocpus":2,"memoryInGBs":12}' \
-            --image-id "$IMAGE_ID" \
-            --subnet-id "$SUBNET_ID" \
+            --image-id "$CLEAN_IMAGE" \
+            --subnet-id "$CLEAN_SUBNET" \
             --ssh-authorized-keys-file ~/.oci/ssh_authorized_keys.pub \
             --assign-public-ip true \
             --display-name "chunchuan-arm-vm" \
             --boot-volume-size-in-gbs 100 > oci_success.log 2> oci_error.log || true
 
-          # 5. 强制输出到 GitHub 日志，让你一眼看清死因
+          # 5. 可视化打印
           echo "=========================================="
           echo "▶▶▶ 甲骨文当前真实对线情况如下 ◀◀◀"
           echo "=========================================="
           if [ -s oci_success.log ]; then
             cat oci_success.log
-          elif [ -s oci_error.log ]; then
-            cat oci_error.log
-          else
-            echo "⚠️ 刚才排队卡死超时了，或者是 Discord Webhook 格式内鬼，请看下方推送状态。"
-          fi
-
-          # 6. 强行推送 Discord 战报
-          if [ -s oci_success.log ]; then
             MSG="🚀 【韩国春川】ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
-            DATA=$(cat oci_success.log | jq -R -s '.')
+            DATA_JSON=$(cat oci_success.log | jq @json)
           else
-            MSG="❌ 【韩国春川】尝试冲锋返回。日志详情："
-            DATA=$(cat oci_error.log | jq -R -s '.')
+            cat oci_error.log
+            MSG="❌ 【韩国春川】尝试冲锋返回。"
+            DATA_JSON=$(cat oci_error.log | jq @json)
           fi
           
+          # 6. 安全安全的 JSON 推送，绝对不翻车
           curl -H "Content-Type: application/json" \
                -X POST \
-               -d "{\"content\": \"$MSG\n\`\`\`json\n$DATA\n\`\`\`\"}" \
+               -d "{\"content\": \"$MSG\n\`\`\`json\n\${DATA_JSON:1:-1}\n\`\`\`\"}" \
                "$DISCORD_WEBHOOK"
