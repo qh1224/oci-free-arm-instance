@@ -63,7 +63,7 @@ jobs:
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
           export SUPPRESS_LABEL_WARNING=True
           
-          # 发起冲锋！
+          # 5. 发起冲锋！
           /home/runner/bin/oci compute instance launch \
             --availability-domain "$V_AD" \
             --compartment-id "$V_COMP" \
@@ -76,16 +76,20 @@ jobs:
             --source-details '{"sourceType": "image", "imageId": "'"$V_IMAGE"'", "bootVolumeSizeInGBs": 100}' \
             > oci_success.log 2> oci_error.log || true
 
-          # 5. 推送 Discord 战报
+          # 6. 极简版 Discord 推送（彻底抛弃 jq，绝对不翻车）
           if [ -s oci_success.log ]; then
             MSG="🚀 【韩国春川】ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
-            DATA_JSON=$(cat oci_success.log | jq @json)
           else
-            MSG="❌ 【韩国春川】排队冲锋中..."
-            DATA_JSON=$(cat oci_error.log | jq @json)
+            # 智能扫描日志：识别排队标志
+            if grep -qiE "capacity|TooManyRequests|LimitExceeded" oci_error.log; then
+              MSG="⏳ 【韩国春川】所有暗号已就位，正在日夜排队冲锋中... (Out of host capacity)"
+            else
+              MSG="❌ 【韩国春川】请求被拦截，请回 GitHub 查看 oci_error.log 寻找原因！"
+            fi
           fi
           
+          # 发送纯文本，不再拼接复杂 JSON
           curl -H "Content-Type: application/json" \
                -X POST \
-               -d "{\"content\": \"$MSG\n\`\`\`json\n\${DATA_JSON:1:-1}\n\`\`\`\"}" \
+               -d "{\"content\": \"$MSG\"}" \
                "$DISCORD_WEBHOOK"
