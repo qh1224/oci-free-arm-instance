@@ -63,19 +63,18 @@ jobs:
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
           export SUPPRESS_LABEL_WARNING=True
           
-          # 执行纯参数新版命令，并强制开启 debug 捕获
+          # 终极修复：使用防弹级引号拼接注入，彻底避开甲骨文重复字段的解析 BUG
           /home/runner/bin/oci compute instance launch \
             --availability-domain "$V_AD" \
             --compartment-id "$V_COMP" \
             --shape "VM.Standard.A1.Flex" \
             --shape-config '{"ocpus":2,"memoryInGBs":12}' \
-            --source-type "image" \
-            --image-id "$V_IMAGE" \
-            --boot-volume-size-in-gbs 100 \
             --subnet-id "$V_SUBNET" \
             --ssh-authorized-keys-file ~/.oci/ssh_authorized_keys.pub \
             --assign-public-ip true \
-            --display-name "chunchuan-arm-vm" --debug > oci_success.log 2> oci_error.log || true
+            --display-name "chunchuan-arm-vm" \
+            --source-details '{"sourceType": "image", "imageId": "'"$V_IMAGE"'", "bootVolumeSizeInGBs": 100}' \
+            --debug > oci_success.log 2> oci_error.log || true
 
           # 5. 暴力打印最后 300 行底层抓包日志
           echo "=========================================="
