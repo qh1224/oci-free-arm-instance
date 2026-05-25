@@ -38,3 +38,62 @@ jobs:
           CLEAN_USER=$(echo -n "$OCI_USER" | tr -d '[:space:]=')
           CLEAN_FINGERPRINT=$(echo -n "$OCI_FINGERPRINT" | tr -d '[:space:]=')
           CLEAN_TENANCY=$(echo -n "$OCI_TENANCY" | tr -d '[:space:]=')
+          CLEAN_REGION=$(echo -n "$OCI_REGION" | tr -d '[:space:]=')
+          
+          cat << EOF > ~/.oci/config
+          [DEFAULT]
+          user=$CLEAN_USER
+          fingerprint=$CLEAN_FINGERPRINT
+          key_file=~/.oci/oci_api_key.pem
+          tenancy=$CLEAN_TENANCY
+          region=$CLEAN_REGION
+          EOF
+          
+          chmod 600 ~/.oci/config
+          
+          # 3. 极致脱水清洗公钥
+          printf "%s" "$SSH_KEY" | xargs > ~/.oci/ssh_authorized_keys.pub
+          
+          # 4. 究极过滤：剥离一切回车、换行、空格和等号
+          V_AD=$(echo -n "$AD_NAME" | tr -d '[:space:]=')
+          V_COMP=$(echo -n "$COMPARTMENT_ID" | tr -d '[:space:]=')
+          V_IMAGE=$(echo -n "$IMAGE_ID" | tr -d '[:space:]=')
+          V_SUBNET=$(echo -n "$SUBNET_ID" | tr -d '[:space:]=')
+          
+          export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
+          export SUPPRESS_LABEL_WARNING=True
+          
+          # 5. 发起顶配冲锋！4核 (ocpus:4) + 24G内存 (memoryInGBs:24) + 200G硬盘 (bootVolumeSizeInGBs: 200)
+          /home/runner/bin/oci compute instance launch \
+            --availability-domain "$V_AD" \
+            --compartment-id "$V_COMP" \
+            --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus":4,"memoryInGBs":24}' \
+            --subnet-id "$V_SUBNET" \
+            --ssh-authorized-keys-file ~/.oci/ssh_authorized_keys.pub \
+            --assign-public-ip true \
+            --display-name "chunchuan-arm-vm-max" \
+            --source-details '{"sourceType": "image", "imageId": "'"$V_IMAGE"'", "bootVolumeSizeInGBs": 200}' \
+            --debug > oci_success.log 2> oci_error.log || true
+
+          # 6. 推送 Discord 战报
+          if [ -s oci_success.log ]; then
+            MSG="🚀 【韩国春川】4核24G 顶配 ARM 实例抢到了！！！快去 GitHub 关闭 Actions 脚本！"
+          else
+            if grep -qiE "capacity|TooManyRequests|LimitExceeded" oci_error.log; then
+              MSG="⏳ 【韩国春川】4核24G暗号就位，日夜排队冲锋中... (Out of host capacity)"
+            else
+              MSG="❌ 【韩国春川】请求被拦截，请回 GitHub 查看 oci_error.log 寻找原因！"
+            fi
+          fi
+          
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"$MSG\"}" \
+               "$DISCORD_WEBHOOK"
+               
+          # 7. 强制打印拦截原因
+          echo "=========================================="
+          echo "▶▶▶ 甲骨文拦截原因如下（请把下面这段发给我） ◀◀◀"
+          echo "=========================================="
+          tail -n 250 oci_error.log
