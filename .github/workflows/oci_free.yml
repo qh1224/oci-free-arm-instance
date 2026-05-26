@@ -63,7 +63,7 @@ jobs:
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
           export SUPPRESS_LABEL_WARNING=True
           
-          # 5. 发起顶配冲锋！4核 (ocpus:4) + 24G内存 (memoryInGBs:24) + 200G硬盘 (bootVolumeSizeInGBs: 200)
+          # 5. 发起顶配冲锋！(已永久移除 --debug 调试，防止污染日志)
           /home/runner/bin/oci compute instance launch \
             --availability-domain "$V_AD" \
             --compartment-id "$V_COMP" \
@@ -74,30 +74,24 @@ jobs:
             --assign-public-ip true \
             --display-name "chunchuan-arm-vm-max" \
             --source-details '{"sourceType": "image", "imageId": "'"$V_IMAGE"'", "bootVolumeSizeInGBs": 200}' \
-            --debug > oci_success.log 2> oci_error.log || true
+            > oci_success.log 2> oci_error.log || true
 
-          # 6. 推送 Discord 战报 (包含附件铁证版)
-          if [ -s oci_success.log ]; then
-            # 如果成功，直接把甲骨文返回的 JSON 日志当成文件传给 Discord！
-            curl -F "content=🚀 【韩国春川】4核24G 顶配 ARM 实例抢到了！！！快点开附件查看它的 IP 和具体藏在哪里！" \
+          # 6. 推送 Discord 战报 (双重严谨判断)
+          if [ -s oci_success.log ] && grep -q "\"id\"" oci_success.log; then
+            # 只有抓到了实打实的 JSON ID，才敢报喜！
+            curl -F "content=🚀 【韩国春川】4核24G 顶配 ARM 实例真·抢到了！！！快点开附件查看它的 JSON 档案！" \
                  -F "file1=@oci_success.log" \
                  "$DISCORD_WEBHOOK"
           else
-            if grep -qiE "capacity|TooManyRequests|LimitExceeded" oci_error.log; then
+            if grep -qiE "capacity|TooManyRequests|LimitExceeded|500" oci_error.log; then
               MSG="⏳ 【韩国春川】4核24G暗号就位，日夜排队冲锋中... (Out of host capacity)"
             else
               MSG="❌ 【韩国春川】请求被拦截，请回 GitHub 查看 oci_error.log 寻找原因！"
             fi
             
-            # 如果是排队或者报错，照常发文本
+            # 排队状态推送纯文本
             curl -H "Content-Type: application/json" \
                  -X POST \
                  -d "{\"content\": \"$MSG\"}" \
                  "$DISCORD_WEBHOOK"
           fi
-          
-          # 7. 强制打印拦截原因
-          echo "=========================================="
-          echo "▶▶▶ 甲骨文拦截原因如下（请把下面这段发给我） ◀◀◀"
-          echo "=========================================="
-          tail -n 250 oci_error.log
