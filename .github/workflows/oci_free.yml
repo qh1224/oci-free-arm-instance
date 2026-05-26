@@ -63,7 +63,7 @@ jobs:
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
           export SUPPRESS_LABEL_WARNING=True
           
-          # 5. 发起顶配冲锋！(已永久移除 --debug 调试，防止污染日志)
+          # 5. 发起顶配冲锋！
           /home/runner/bin/oci compute instance launch \
             --availability-domain "$V_AD" \
             --compartment-id "$V_COMP" \
@@ -78,7 +78,6 @@ jobs:
 
           # 6. 推送 Discord 战报 (双重严谨判断)
           if [ -s oci_success.log ] && grep -q "\"id\"" oci_success.log; then
-            # 只有抓到了实打实的 JSON ID，才敢报喜！
             curl -F "content=🚀 【韩国春川】4核24G 顶配 ARM 实例真·抢到了！！！快点开附件查看它的 JSON 档案！" \
                  -F "file1=@oci_success.log" \
                  "$DISCORD_WEBHOOK"
@@ -89,9 +88,14 @@ jobs:
               MSG="❌ 【韩国春川】请求被拦截，请回 GitHub 查看 oci_error.log 寻找原因！"
             fi
             
-            # 排队状态推送纯文本
             curl -H "Content-Type: application/json" \
                  -X POST \
                  -d "{\"content\": \"$MSG\"}" \
                  "$DISCORD_WEBHOOK"
           fi
+          
+          # 7. 打印真实拦截原因 (补回遗漏的这最后一句！)
+          echo "=========================================="
+          echo "▶▶▶ 甲骨文拦截原因如下（请把下面这段发给我） ◀◀◀"
+          echo "=========================================="
+          cat oci_error.log
